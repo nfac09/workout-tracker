@@ -1,116 +1,126 @@
-/* Mobile-first reset */
-:root {
-  --bg: #0a0a0a;
-  --panel: #141414;
-  --border: #2a2a2a;
-  --text: #eaeaea;
-  --muted: #a0a0a0;
-  --accent: #7bd389;
-  --radius: 14px;
+/* ---------- Theme ---------- */
+:root{
+  --bg:#0a0a0a;        /* page */
+  --panel:#141414;     /* cards */
+  --border:#262626;    /* subtle lines */
+  --muted:#a4a4a4;     /* secondary text */
+  --text:#f2f2f2;      /* primary text */
+  --accent:#7bd389;    /* primary action */
+  --accent-press:#68be76;
+  --radius:16px;
+  --radius-sm:12px;
+  --shadow:0 6px 18px rgba(0,0,0,.35);
 }
 
-* { box-sizing: border-box; }
-html, body, #root { height: 100%; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
-  -webkit-font-smoothing: antialiased;
+*{box-sizing:border-box}
+html,body,#root{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font:16px -apple-system,BlinkMacSystemFont,Segoe UI,Inter,Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
 }
 
-.app {
-  padding: calc(env(safe-area-inset-top, 0) + 12px) 12px
-           calc(env(safe-area-inset-bottom, 0) + 16px);
-  max-width: 960px;
-  margin: 0 auto;
+/* ---------- App shell ---------- */
+.app{
+  padding:
+    calc(env(safe-area-inset-top,0) + 8px)
+    12px
+    calc(env(safe-area-inset-bottom,0) + 20px);
+  max-width: 720px;   /* perfect for phones, comfy on desktop */
+  margin:0 auto;
 }
 
-/* Header */
-h1 {
-  font-size: 28px;
-  line-height: 1.1;
-  margin: 0 0 10px;
+h1{
+  margin:4px 0 8px;
+  letter-spacing:.2px;
+  font-weight:800;
+  font-size:32px;
 }
 
-/* Top actions row (Export/Import/Reset/unit) */
-.actions {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 6px;
+/* top row (unit + export/import/reset) */
+.actions{
+  display:flex; gap:8px; overflow:auto; padding-bottom:4px;
 }
-.actions > * { flex: 0 0 auto; }
+.actions > *{flex:0 0 auto}
 
-/* Tabs row */
-.tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  margin: 10px 0 14px;
+/* tabs */
+.tabs{display:flex; gap:8px; overflow:auto; margin:10px 0 12px}
+.tab{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:104px; padding:12px 14px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:linear-gradient(180deg,#171717,#111111);
+  color:var(--text);
 }
-.tab {
-  border: 1px solid var(--border);
-  background: var(--panel);
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  min-width: 88px;
-  text-align: center;
+.tab[aria-pressed="true"]{
+  border-color:#333; background:linear-gradient(180deg,#1b1b1b,#101010);
+  outline:2px solid #222;
 }
 
-/* Cards */
-.card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
+/* layout */
+.main{display:grid; gap:12px}
+@media (min-width:768px){ .main{grid-template-columns:1.2fr .8fr} }
+
+/* cards */
+.card{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:14px;
+  box-shadow:var(--shadow);
+}
+.card h3{margin:0 0 10px}
+.stack{display:grid; gap:12px}
+.row{display:flex; gap:10px}
+.muted{color:var(--muted)}
+
+/* inputs */
+label{font-size:13px; color:var(--muted); display:block; margin:2px 0 6px}
+input,select,textarea,button{
+  font-size:16px; color:var(--text); background:#0f0f0f;
+  border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:12px;
+}
+select{padding-right:36px}
+textarea{min-height:120px; resize:vertical}
+.inline{display:flex; align-items:center; gap:10px}
+
+/* buttons */
+button{transition:transform .05s ease}
+button:active{transform:translateY(1px)}
+button.primary{
+  background:var(--accent); color:#0a0a0a; border-color:var(--accent);
+  font-weight:700;
+}
+button.primary:active{background:var(--accent-press)}
+
+/* set row */
+.setRow{
+  display:flex; gap:8px; align-items:center;
+}
+.setRow select{flex:1.2}
+.setRow input[type="number"]{flex:.8}
+.setRow .kill{
+  flex:0 0 44px; padding:10px; text-align:center; background:#1a1a1a;
+}
+.setRow .kill:active{background:#171717}
+
+/* sticky save on mobile */
+.saveBar{
+  position:sticky; bottom:8px; z-index:2; margin-top:6px;
 }
 
-/* Form controls */
-label { font-size: 14px; color: var(--muted); }
-input, select, textarea, button {
-  width: 100%;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: #111;
-  color: var(--text);
-  padding: 12px;
-  font-size: 16px;
+/* badges */
+.badge{
+  display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px;
+  background:#1f2a1f; color:#9cf2a7; border:1px solid #2b3b2c;
 }
-textarea { min-height: 120px; resize: vertical; }
+.pr{ background:#1f2a1f; color:#83f29a; border-color:#2e3f30 }
 
-/* Buttons */
-button {
-  background: #1b1b1b;
-  border: 1px solid var(--border);
-}
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #0a0a0a;
-  font-weight: 600;
-}
-button:active { transform: translateY(1px); }
-
-/* Small utility gaps */
-.row { display: flex; gap: 10px; }
-.stack { display: grid; gap: 12px; }
-
-/* Layout: stack on mobile, two columns on wider screens */
-.main {
-  display: grid;
-  gap: 12px;
-}
-@media (min-width: 768px) {
-  .tabs { justify-content: start; }
-  .main {
-    grid-template-columns: 1.2fr 0.8fr; /* form + recent */
-    align-items: start;
-  }
-}
-
-/* Checkbox alignment */
-.inline {
-  display: flex; align-items: center; gap: 10px;
-}
-.inline input[type="checkbox"] { width: auto; height: 20px; }
+/* tiny sparkline */
+.sparkline{width:100%; height:48px}
+.line{fill:none; stroke:#66c98b; stroke-width:2}
+.grid{stroke:#303030; stroke-width:.5}

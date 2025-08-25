@@ -309,3 +309,40 @@ html, body, #root { overflow-x: hidden; }
 @media (max-width: 420px){
   .btn, .pill, .tab { height: 42px; padding: 0 14px; }
 }
+/* chips (small labels) */
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:#1a1a1a;
+  color:#ddd;
+  font-size:12px;
+}
+
+/* progress bar for goals */
+.progress{
+  position:relative;
+  height:14px;
+  border-radius:999px;
+  background:#161616;
+  border:1px solid var(--border);
+  overflow:hidden;
+  margin-top:8px;
+}
+.progressFill{
+  height:100%;
+  background:linear-gradient(90deg, #7bd389, #68be76);
+}
+.progressLabel{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+  color:#0a0a0a;
+  mix-blend-mode:screen;
+}

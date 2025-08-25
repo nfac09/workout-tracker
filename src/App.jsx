@@ -2,10 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
 /* --------- persistence --------- */
-const KEY = "wt.v1";
-const load = () => {
-  try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; }
-};
+const KEY = "wt.v2"; // bump to migrate old caches
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; } };
 const save = (data) => localStorage.setItem(KEY, JSON.stringify(data));
 
 /* --------- utils --------- */
@@ -27,22 +25,16 @@ function NumberInput({ value, onChange, step = 1, ...props }) {
     />
   );
 }
+function PRBadge() { return <span className="badge pr">NEW PR</span>; }
+function Chip({ children }) { return <span className="chip">{children}</span>; }
 
-// Win-pr badge
-function PRBadge() {
-  return <span className="badge pr">NEW PR</span>;
-}
-
-// very small inline SVG sparkline (last N points)
-function Sparkline({ points }) {
+// very small inline SVG sparkline
+function Sparkline({ points, height = 48 }) {
   if (!points || points.length < 2) return null;
-  const W = 280, H = 48, P = 6;
+  const W = 300, H = height, P = 6;
   const xs = points.map((_, i) => (i / (points.length - 1)) * (W - P * 2) + P);
   const min = Math.min(...points), max = Math.max(...points);
-  const ys = points.map(v => {
-    if (max === min) return H / 2;
-    return H - P - ((v - min) / (max - min)) * (H - P * 2);
-  });
+  const ys = points.map(v => max === min ? H / 2 : H - P - ((v - min) / (max - min)) * (H - P * 2));
   const d = xs.map((x, i) => `${i ? "L" : "M"}${x},${ys[i]}`).join(" ");
   return (
     <svg className="sparkline" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
@@ -61,6 +53,9 @@ export default function App() {
   const [exercises, setExercises] = useState(saved?.exercises || ["Bench Press","Squat","Deadlift","Overhead Press","Barbell Row"]);
   const [templates, setTemplates] = useState(saved?.templates || []);
   const [workouts, setWorkouts] = useState(saved?.workouts || []);
+  // NEW: body weight & goals
+  const [body, setBody] = useState(saved?.body || []); // [{date, weight}]
+  const [goals, setGoals] = useState(saved?.goals || { bodyTarget: "", lifts: {} });
   const [tab, setTab] = useState("log");
 
   // log form
@@ -70,11 +65,15 @@ export default function App() {
   const [sets, setSets] = useState([]);
   const [notes, setNotes] = useState("");
 
-  useEffect(() => { save({ unit, exercises, templates, workouts }); }, [unit, exercises, templates, workouts]);
+  // NEW: body log form
+  const [bwDate, setBwDate] = useState(fmtDate(new Date()));
+  const [bw, setBw] = useState("");
 
-  // SW register (for install/offline)
+  useEffect(() => { save({ unit, exercises, templates, workouts, body, goals }); }, [unit, exercises, templates, workouts, body, goals]);
+
+  // SW only in production
   useEffect(() => {
-    if ("serviceWorker" in navigator) {
+    if (import.meta.env.PROD && "serviceWorker" in navigator) {
       const url = (import.meta.env.BASE_URL || "/") + "sw.js";
       navigator.serviceWorker.register(url).catch(() => {});
     }
@@ -113,7 +112,6 @@ export default function App() {
   const addSet = () => setSets(s => [...s, { exercise: exercises[0]||"Exercise", reps:8, weight:0 }]);
   const removeSet = (i) => setSets(s => s.filter((_,idx)=>idx!==i));
   const updateSet = (i, patch) => setSets(s => s.map((row,idx)=>idx===i?{...row,...patch}:row));
-
   const saveWorkout = () => {
     if (!sets.length) return alert("Add at least one set.");
     const entry = { id: crypto.randomUUID(), date, notes, sets: sets.map(s=>({...s})) };
@@ -122,7 +120,7 @@ export default function App() {
   };
 
   const exportJson = () => {
-    const blob = new Blob([JSON.stringify({ unit, exercises, templates, workouts }, null, 2)], { type:"application/json" });
+    const blob = new Blob([JSON.stringify({ unit, exercises, templates, workouts, body, goals }, null, 2)], { type:"application/json" });
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), { href:url, download:"workouts.json" });
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
@@ -132,11 +130,13 @@ export default function App() {
     if (!obj) return;
     setUnit(obj.unit || "lb"); setExercises(obj.exercises || []);
     setTemplates(obj.templates || []); setWorkouts(obj.workouts || []);
+    setBody(obj.body || []); setGoals(obj.goals || { bodyTarget:"", lifts:{} });
   };
   const resetAll = () => {
     if (!confirm("Erase all local data?")) return;
     setExercises(["Bench Press","Squat","Deadlift","Overhead Press","Barbell Row"]);
     setTemplates([]); setWorkouts([]); setUnit("lb");
+    setBody([]); setGoals({ bodyTarget:"", lifts:{} });
     setDate(fmtDate(new Date())); setTemplateId(""); setSets([]); setNotes("");
   };
 
@@ -161,8 +161,36 @@ export default function App() {
       ...r,
       weight: r.weight === "" ? "" : (to === "kg" ? lbToKg(r.weight) : kgToLb(r.weight))
     })));
+    // convert stored body weights too
+    setBody(list => list.map(b => ({ ...b, weight: b.weight === "" ? "" : (to === "kg" ? lbToKg(b.weight) : kgToLb(b.weight)) })));
     setUnit(to);
   }
+
+  // ===== Stats helpers =====
+  // Per-exercise time series: one entry per workout date = best 1RM that day
+  function seriesForExercise(name){
+    const byDate = new Map();
+    workouts.forEach(w=>{
+      const best = w.sets.filter(s=>s.exercise===name)
+        .reduce((m,s)=>Math.max(m, est1RM(s.weight,s.reps)), 0);
+      if (best>0) byDate.set(w.date, Math.round(best));
+    });
+    const rows = [...byDate.entries()].sort((a,b)=>new Date(a[0])-new Date(b[0]));
+    return rows.map(r=>r[1]);
+  }
+
+  const bodySorted = useMemo(()=>[...body].sort((a,b)=>new Date(a.date)-new Date(b.date)),[body]);
+  const bodyPoints = bodySorted.map(b=>b.weight);
+
+  // simple progress % helper
+  const pct = (cur, goal, dir="up") => {
+    if (!goal || !cur) return 0;
+    if (dir==="down") return Math.max(0, Math.min(100, Math.round(((cur - goal) * -100) / (goal || 1))));
+    return Math.max(0, Math.min(100, Math.round((cur / goal) * 100)));
+  };
+
+  // for Stats tab exercise selector
+  const [statEx, setStatEx] = useState(exercises[0] || "");
 
   return (
     <div className="app">
@@ -171,36 +199,43 @@ export default function App() {
 
       {/* Top actions */}
       <div className="actions">
-        <select value={unit} onChange={(e)=>onUnitChange(e.target.value)} aria-label="Units">
+        <select className="pill" value={unit} onChange={(e)=>onUnitChange(e.target.value)} aria-label="Units">
           <option value="lb">lb</option>
           <option value="kg">kg</option>
         </select>
 
-        <button onClick={exportJson}>Export</button>
+        <button className="btn" onClick={exportJson}>Export</button>
 
         <label style={{position:"relative"}}>
           <input type="file" accept="application/json"
                  onChange={(e)=> e.target.files?.[0] && importJson(e.target.files[0])}
                  style={{position:"absolute", inset:0, opacity:0, cursor:"pointer"}} />
-          <span className="tab" aria-pressed="false">Import</span>
+          <span className="btn">Import</span>
         </label>
 
-        <button onClick={resetAll}>Reset</button>
+        <button className="btn" onClick={resetAll}>Reset</button>
       </div>
 
       {/* Tabs */}
       <div className="tabs">
-        {["log","templates","exercises","history"].map(t => (
-          <button key={t} className="tab" aria-pressed={tab===t} onClick={()=>setTab(t)}>
-            {t[0].toUpperCase()+t.slice(1)}
+        {[
+          ["log","Log"],
+          ["body","Body"],
+          ["stats","Stats"],
+          ["templates","Templates"],
+          ["exercises","Exercises"],
+          ["history","History"],
+          ["goals","Goals"]
+        ].map(([key,label]) => (
+          <button key={key} className="tab" aria-pressed={tab===key} onClick={()=>setTab(key)}>
+            {label}
           </button>
         ))}
       </div>
 
-      {/* Content */}
+      {/* LOG */}
       {tab === "log" && (
         <div className="main">
-          {/* Log Form */}
           <div className="card stack">
             <div className="row">
               <div style={{flex:1}}>
@@ -221,7 +256,6 @@ export default function App() {
               Prefill last weights
             </label>
 
-            {/* Sets */}
             <div className="stack">
               {sets.map((s, i) => (
                 <div key={i} className="setRow">
@@ -235,7 +269,7 @@ export default function App() {
                   <button className="kill" onClick={()=>removeSet(i)} aria-label="Remove set">✕</button>
                 </div>
               ))}
-              <button onClick={addSet}>Add Set</button>
+              <button className="btn" onClick={addSet}>Add Set</button>
             </div>
 
             <div className="stack">
@@ -244,11 +278,10 @@ export default function App() {
             </div>
 
             <div className="saveBar">
-              <button className="primary" onClick={saveWorkout}>Save Workout</button>
+              <button className="btn-primary" onClick={saveWorkout}>Save Workout</button>
             </div>
           </div>
 
-          {/* Recent */}
           <div className="card">
             <h3>Recent</h3>
             {recent.length === 0 ? (
@@ -278,26 +311,109 @@ export default function App() {
         </div>
       )}
 
+      {/* BODY WEIGHT */}
+      {tab === "body" && (
+        <div className="card stack">
+          <h3>Body Weight</h3>
+          <div className="row">
+            <div style={{flex:1}}>
+              <label>Date</label>
+              <input type="date" value={bwDate} onChange={(e)=>setBwDate(e.target.value)} />
+            </div>
+            <div style={{flex:1}}>
+              <label>Weight ({unit})</label>
+              <NumberInput value={bw} step={unit==="kg"?0.2:0.5} onChange={setBw} />
+            </div>
+          </div>
+          <div className="row">
+            <button className="btn" onClick={()=>{
+              if (bw==="" || Number.isNaN(Number(bw))) return;
+              setBody(list => {
+                const id = crypto.randomUUID();
+                const next = [...list, { id, date:bwDate, weight:bw }];
+                return next;
+              });
+              setBw("");
+            }}>Add</button>
+            <Chip>{body.length} entries</Chip>
+          </div>
+
+          <div className="stack">
+            <div className="muted">Trend</div>
+            <Sparkline points={bodyPoints} />
+            {bodySorted.length>0 && (
+              <div className="muted" style={{fontSize:14}}>
+                Last: {bodySorted[bodySorted.length-1].weight}{unit}
+                {goals.bodyTarget && <> • Target: {goals.bodyTarget}{unit}</>}
+              </div>
+            )}
+          </div>
+
+          <div className="stack">
+            <h3>Recent</h3>
+            {bodySorted.slice(-7).reverse().map(b=>(
+              <div key={b.id} className="row" style={{justifyContent:"space-between"}}>
+                <div>{new Date(b.date).toDateString()}</div>
+                <div className="muted">{b.weight}{unit}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* STATS */}
+      {tab === "stats" && (
+        <div className="stack">
+          <div className="card stack">
+            <h3>Exercise Trend</h3>
+            <div className="row">
+              <select value={statEx} onChange={(e)=>setStatEx(e.target.value)} style={{flex:1}}>
+                {exercises.map(n=><option key={n} value={n}>{n}</option>)}
+              </select>
+              <Chip>1RM (per workout)</Chip>
+            </div>
+            <Sparkline points={seriesForExercise(statEx)} height={64} />
+            <div className="muted" style={{fontSize:14}}>
+              Data point = best estimated 1RM for that exercise each workout.
+            </div>
+          </div>
+
+          <div className="card stack">
+            <h3>Body Weight</h3>
+            <Sparkline points={bodyPoints} />
+            {bodySorted.length>0 && (
+              <div className="muted" style={{fontSize:14}}>
+                {bodySorted.length} entries • Avg: {
+                  Math.round((bodyPoints.reduce((a,b)=>a+b,0)/(bodyPoints.length||1))*10)/10
+                }{unit}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* EXERCISES */}
       {tab === "exercises" && (
         <div className="card stack">
           <h3>Exercises</h3>
           {exercises.map((name,i)=>(
             <div key={i} className="row">
               <input value={name} onChange={(e)=>setExercises(arr=>arr.map((v,idx)=>idx===i?e.target.value:v))}/>
-              <button onClick={()=>setExercises(arr=>arr.filter((_,idx)=>idx!==i))}>Delete</button>
+              <button className="btn" onClick={()=>setExercises(arr=>arr.filter((_,idx)=>idx!==i))}>Delete</button>
             </div>
           ))}
-          <button onClick={()=>{
+          <button className="btn" onClick={()=>{
             const n = prompt("New exercise name?");
             if (n) setExercises(arr=>[...arr, n]);
           }}>Add Exercise</button>
         </div>
       )}
 
+      {/* TEMPLATES */}
       {tab === "templates" && (
         <div className="card stack">
           <h3>Templates</h3>
-          <button onClick={()=>{
+          <button className="btn" onClick={()=>{
             const name = prompt("Template name?");
             if (!name) return;
             const items = [];
@@ -317,7 +433,7 @@ export default function App() {
               <div key={t.id} className="card" style={{padding:12}}>
                 <div className="row" style={{alignItems:"center"}}>
                   <div style={{fontWeight:700, flex:1}}>{t.name}</div>
-                  <button onClick={()=>setTemplates(arr=>arr.filter(x=>x.id!==t.id))}>Delete</button>
+                  <button className="btn" onClick={()=>setTemplates(arr=>arr.filter(x=>x.id!==t.id))}>Delete</button>
                 </div>
                 {t.items.map((it,i)=>(
                   <div key={i} className="muted" style={{fontSize:14}}>
@@ -330,6 +446,7 @@ export default function App() {
         </div>
       )}
 
+      {/* HISTORY */}
       {tab === "history" && (
         <div className="card stack">
           <h3>History</h3>
@@ -337,7 +454,6 @@ export default function App() {
             <div className="muted">No workouts logged yet.</div>
           ) : (
             workouts.map(w=>{
-              // Make a tiny sparkline of total session 1RM sum (gives a sense of load)
               const totals = w.sets.map(s=>est1RM(s.weight,s.reps));
               const total = totals.reduce((a,b)=>a+b,0);
               return (
@@ -359,6 +475,69 @@ export default function App() {
           )}
         </div>
       )}
+
+      {/* GOALS */}
+      {tab === "goals" && (
+        <div className="card stack">
+          <h3>Goals</h3>
+
+          <div className="card" style={{padding:12}}>
+            <div className="row" style={{alignItems:"end"}}>
+              <div style={{flex:1}}>
+                <label>Body Weight Target ({unit})</label>
+                <NumberInput value={goals.bodyTarget || ""} step={unit==="kg"?0.2:0.5}
+                             onChange={(v)=>setGoals(g=>({...g, bodyTarget:v}))} />
+              </div>
+              <button className="btn" onClick={()=>setGoals(g=>({...g, bodyTarget:""}))}>Clear</button>
+            </div>
+            {bodySorted.length>0 && goals.bodyTarget && (
+              <>
+                <div className="muted" style={{marginTop:8}}>
+                  Current: {bodySorted[bodySorted.length-1].weight}{unit}
+                </div>
+                <Progress value={pct(bodySorted[bodySorted.length-1].weight, goals.bodyTarget, goals.bodyTarget < bodySorted[bodySorted.length-1].weight ? "down":"up")} />
+              </>
+            )}
+          </div>
+
+          <div className="stack">
+            <h3>Lift Targets (1RM)</h3>
+            {exercises.map(name=>{
+              const cur = latestByExercise[name]?.oneRM || 0;
+              const target = goals.lifts?.[name] || "";
+              const progress = pct(cur, target || 0, "up");
+              return (
+                <div key={name} className="card" style={{padding:12}}>
+                  <div className="row" style={{alignItems:"end"}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700}}>{name}</div>
+                      <div className="muted" style={{fontSize:13}}>Current best: {cur}{unit}</div>
+                    </div>
+                    <div>
+                      <label>Target ({unit})</label>
+                      <NumberInput value={target} step={1}
+                                   onChange={(v)=>setGoals(g=>({...g, lifts:{...g.lifts, [name]:v}}))} />
+                    </div>
+                    <button className="btn" onClick={()=>setGoals(g=>{ const { [name]:_, ...rest } = g.lifts||{}; return {...g, lifts:rest}; })}>Clear</button>
+                  </div>
+                  {target && <Progress value={progress} />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* simple progress bar */
+function Progress({ value }) {
+  const v = Math.max(0, Math.min(100, Math.round(value||0)));
+  return (
+    <div className="progress">
+      <div className="progressFill" style={{width:`${v}%`}} />
+      <div className="progressLabel">{v}%</div>
     </div>
   );
 }

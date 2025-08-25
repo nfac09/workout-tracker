@@ -1,7 +1,7 @@
 // public/sw.js
 
 // Bump this to force updates after a deploy
-const CACHE = "workout-cache-v3";
+const CACHE = "workout-cache-v4";
 
 // The service worker scope ends with a trailing slash, e.g.
 // https://nfac09.github.io/workout-tracker/
